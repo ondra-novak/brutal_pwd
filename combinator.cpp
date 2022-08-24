@@ -1,5 +1,4 @@
 #include "CSVReader.h"
-#include "BloomSet.h"
 #include "ThreadPool.h"
 #include <fstream>
 #include <algorithm>
@@ -64,7 +63,7 @@ void loadWordsCSV(std::istream &input, std::size_t defcount) {
     CSVFieldIndexMapping<CSVLine> mapping = {&CSVLine::word, &CSVLine::max_count};
     while (csv.readRow(mapping, ln)) {
         if (!ln.word.empty()) {
-            unsigned int count = ln.max_count.empty()?defcount:std::strtoul(ln.max_count.c_str(),nullptr,10);
+            std::size_t count = ln.max_count.empty()?defcount:std::strtoul(ln.max_count.c_str(),nullptr,10);
             addWord(std::move(ln.word), count);
         }
     }
@@ -75,7 +74,7 @@ template<typename Fn>
 class Printer {
 public:
     Printer(Fn &&fn):fn(std::move(fn)) {}
-    void operator()(const std::vector<unsigned long> &selection);
+    void operator()(const std::vector<std::size_t> &selection);
     ~Printer() {
         if (!buffer.empty())
             fn(buffer);
@@ -93,7 +92,7 @@ template<typename Fn>
 std::atomic<std::size_t> Printer<Fn>::total_generated (0);
 
 template<typename Fn>
-void Printer<Fn>::operator()(const std::vector<unsigned long> &selection) {
+void Printer<Fn>::operator()(const std::vector<std::size_t> &selection) {
     for (const auto &x: selection) {
         buffer.append(word_list[x].w);
     }
@@ -130,7 +129,7 @@ static inline std::size_t getLength(const WordDef &w) {return w.w.length();}
 static inline std::size_t getLength(std::size_t s) {return s;}
 
 template<typename Fn>
-std::size_t run_cycle(std::vector<unsigned long> &selected,
+std::size_t run_cycle(std::vector<std::size_t> &selected,
         std::vector<unsigned char> &level,
         std::size_t min_chars, std::size_t max_chars,
         std::size_t max_level, std::size_t cur_count,
@@ -198,7 +197,7 @@ void run_combinations(thread_pool &tp, std::size_t min_chars, std::size_t max_ch
                 std::cerr << "Start level:" << max_level << ", word: " << word_list[s].w << std::endl;
             }
             std::size_t count = 0;
-            std::vector<unsigned long> selected;
+            std::vector<std::size_t> selected;
             selected.push_back(s);
             std::vector<unsigned char> counters(word_list.size(),0);
             counters[s] = 1;
@@ -280,6 +279,10 @@ int main(int argc, char **argv) {
             if (readCSV) loadWordsCSV(stream, defcount); else loadWordsText(stream, defcount);
         }
     }
+    if (word_list.empty()) {
+        std::cerr << "Nothing to do!" << std::endl;
+        return 2;
+    }
 
     dedupList();
     std::sort(word_list.begin(), word_list.end(), [](const WordDef &a, const WordDef &b) {
@@ -300,7 +303,7 @@ int main(int argc, char **argv) {
         std::cerr << "Can't detect count of available CPUs. Running in 1 thread. Use --threads= to specify count of threads to use" << std::endl;
         threads = 1;
     }
-    thread_pool thr(threads);
+    thread_pool thr(static_cast<int>(threads));
     MyPrinter out(std::move(printer));
 
     for (std::size_t i = 0; i < maxchars; i++) {
